@@ -96,12 +96,11 @@ PAGE = """
     h1 { font-size: 1.4rem; }
     #log { border: 1px solid #ccc; border-radius: 8px; padding: 12px;
            height: 320px; overflow-y: auto; background: #fafafa; }
-    .you { color: #1a73e8; margin: 6px 0; }
+    .you { color: #0b5; margin: 6px 0; }
     .bot { color: #333; margin: 6px 0; }
     form { display: flex; gap: 8px; margin-top: 12px; }
     input[type=text] { flex: 1; padding: 8px; }
-    button { padding: 8px 14px; cursor: pointer; background: #1a73e8; color: #fff; border: none; border-radius: 6px; }
-    button:hover { background: #1558b0; }
+    button { padding: 8px 14px; cursor: pointer; }
     .hint { color: #777; font-size: 0.85rem; margin-top: 8px; }
   </style>
 </head>
