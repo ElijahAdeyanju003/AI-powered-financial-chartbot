@@ -15,6 +15,18 @@ df = pd.read_csv(CSV_PATH)
 
 DEFAULT_YEAR = 2025
 
+SUGGESTIONS = [
+    "What was Microsoft's revenue in 2025?",
+    "What was Tesla's net income in 2024?",
+    "Compare Apple's revenue in 2024 and 2025.",
+    "How did Microsoft's net income change?",
+]
+
+WELCOME_MESSAGE = (
+    "Hello! I can help you analyze financial information for Microsoft, "
+    "Tesla, and Apple. What would you like to know?"
+)
+
 
 def get_row(df, company, year):
     match = df[(df["Company"].str.lower() == company.lower()) & (df["Fiscal Year"] == year)]
@@ -86,39 +98,326 @@ def simple_chatbot(user_query, df):
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
 
+NUMBER_PATTERN = re.compile(r"(\$[\d,]+(?:\.\d+)?(?: million)?|\(?[+-]?\d+\.\d+%\)?)")
+
+
+def render_message_text(text):
+    """Escape user-facing text, then set figures in a tabular mono face."""
+    escaped = html.escape(text)
+    return NUMBER_PATTERN.sub(r'<span class="num">\1</span>', escaped)
+
+
 PAGE = """
 <!doctype html>
-<html>
+<html lang="en">
 <head>
-  <title>Financial Chatbot</title>
-  <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
-    h1 { font-size: 1.4rem; }
-    #log { border: 1px solid #ccc; border-radius: 8px; padding: 12px;
-           height: 320px; overflow-y: auto; background: #fafafa; }
-    .you { color: #0b5; margin: 6px 0; }
-    .bot { color: #333; margin: 6px 0; }
-    form { display: flex; gap: 8px; margin-top: 12px; }
-    input[type=text] { flex: 1; padding: 8px; }
-    button { padding: 8px 14px; cursor: pointer; }
-    .hint { color: #777; font-size: 0.85rem; margin-top: 8px; }
-  </style>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GFC Financial Insights</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:wght@600;700&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ink: #0b1e33;
+    --ink-soft: #142d4a;
+    --paper: #f6f4ee;
+    --card: #efeade;
+    --border: #ddd5c2;
+    --slate: #52606d;
+    --gold: #a8752f;
+    --good: #2f8f5b;
+    font-size: 16px;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    background-image: repeating-linear-gradient(
+      to bottom,
+      rgba(11, 30, 51, 0.035) 0px,
+      rgba(11, 30, 51, 0.035) 1px,
+      transparent 1px,
+      transparent 30px
+    );
+    color: var(--ink);
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    display: flex;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 32px 16px 48px;
+  }
+
+  .app {
+    width: 100%;
+    max-width: 640px;
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(11, 30, 51, 0.06);
+  }
+
+  header {
+    background: var(--ink);
+    color: #fdfcf9;
+    padding: 22px 26px 20px;
+    border-bottom: 3px solid var(--gold);
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+
+  header h1 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-weight: 700;
+    font-size: 1.5rem;
+    margin: 0 0 4px;
+    letter-spacing: 0.2px;
+  }
+
+  header p {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #c7d0da;
+  }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: #cfe8d9;
+    white-space: nowrap;
+    margin-top: 2px;
+  }
+
+  .status::before {
+    content: '';
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 0 3px rgba(47, 143, 91, 0.25);
+  }
+
+  .intro {
+    margin: 20px 22px 4px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px 20px 20px;
+  }
+
+  .intro h2 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 1.1rem;
+    margin: 0 0 6px;
+    color: var(--ink);
+  }
+
+  .intro p {
+    margin: 0 0 14px;
+    font-size: 0.88rem;
+    color: var(--slate);
+    line-height: 1.5;
+  }
+
+  .chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .chip {
+    font-family: inherit;
+    font-size: 0.82rem;
+    color: var(--ink);
+    background: var(--paper);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 7px 14px;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  }
+
+  .chip:hover {
+    background: var(--ink);
+    color: #fdfcf9;
+    border-color: var(--ink);
+  }
+
+  .thread {
+    padding: 18px 22px 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    max-height: 420px;
+    overflow-y: auto;
+  }
+
+  .msg { display: flex; flex-direction: column; max-width: 86%; }
+  .msg.bot { align-self: flex-start; }
+  .msg.user { align-self: flex-end; align-items: flex-end; }
+
+  .msg .label {
+    font-size: 0.72rem;
+    color: var(--slate);
+    margin-bottom: 4px;
+    padding: 0 4px;
+  }
+
+  .msg .bubble {
+    padding: 11px 14px;
+    border-radius: 10px;
+    font-size: 0.92rem;
+    line-height: 1.5;
+  }
+
+  .msg.bot .bubble {
+    background: var(--card);
+    border: 1px solid var(--border);
+    color: var(--ink);
+    border-top-left-radius: 3px;
+  }
+
+  .msg.user .bubble {
+    background: var(--ink);
+    color: #fdfcf9;
+    border-top-right-radius: 3px;
+  }
+
+  .num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.9em;
+  }
+
+  form.composer {
+    display: flex;
+    gap: 10px;
+    padding: 16px 22px 8px;
+  }
+
+  .composer input[type=text] {
+    flex: 1;
+    padding: 11px 14px;
+    font-family: inherit;
+    font-size: 0.92rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fffefb;
+    color: var(--ink);
+  }
+
+  .composer input[type=text]:focus {
+    outline: 2px solid var(--gold);
+    outline-offset: 1px;
+  }
+
+  .composer button {
+    font-family: inherit;
+    font-weight: 600;
+    font-size: 0.92rem;
+    padding: 0 22px;
+    border: none;
+    border-radius: 8px;
+    background: var(--ink);
+    color: #fdfcf9;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+
+  .composer button:hover { background: var(--ink-soft); }
+
+  footer {
+    text-align: center;
+    font-size: 0.74rem;
+    color: var(--slate);
+    padding: 4px 22px 20px;
+  }
+
+  @media (max-width: 480px) {
+    .msg { max-width: 94%; }
+  }
+</style>
 </head>
 <body>
-  <h1>Financial Chatbot (Apple &middot; Microsoft &middot; Tesla, FY2023&ndash;2025)</h1>
-  <div id="log">{{ log_html|safe }}</div>
-  <form method="post" action="/">
-    <input type="text" name="q" placeholder="e.g. What is Tesla's total revenue in 2024?"
-           autofocus required>
-    <button type="submit">Ask</button>
-  </form>
-  <p class="hint">Try: revenue &middot; net income change &middot; total assets &middot; liabilities &middot; cash flow</p>
+  <div class="app">
+    <header>
+      <div>
+        <h1>GFC Financial Insights</h1>
+        <p>AI-powered financial performance assistant</p>
+      </div>
+      <div class="status">Online</div>
+    </header>
+
+    <div class="intro">
+      <h2>Financial Analysis Assistant</h2>
+      <p>Ask questions about the financial performance of Microsoft, Tesla, and Apple from 2023 to 2025.</p>
+      <div class="chips">
+        {% for s in suggestions %}
+        <button type="button" class="chip" data-q="{{ s }}">{{ s }}</button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="thread" id="thread">
+      {{ log_html|safe }}
+    </div>
+
+    <form class="composer" method="post" action="/">
+      <input type="text" name="q" id="q" placeholder="Ask a financial question..." autofocus required autocomplete="off">
+      <button type="submit">Send</button>
+    </form>
+
+    <footer>Financial data covers 2023&ndash;2025 and is based on SEC 10-K filings. This prototype is for analytical and educational purposes.</footer>
+  </div>
+
+  <script>
+    document.querySelectorAll('.chip').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var input = document.getElementById('q');
+        input.value = btn.getAttribute('data-q');
+        btn.closest('.app').querySelector('form.composer').submit();
+      });
+    });
+    var thread = document.getElementById('thread');
+    if (thread) { thread.scrollTop = thread.scrollHeight; }
+  </script>
 </body>
 </html>
 """
 
 # In-memory history so the page can show prior turns (per server process, not per visitor).
 history = []
+
+
+def build_thread_html():
+    if not history:
+        return (
+            '<div class="msg bot">'
+            '<div class="label">GFC Assistant</div>'
+            f'<div class="bubble">{render_message_text(WELCOME_MESSAGE)}</div>'
+            "</div>"
+        )
+    rows = []
+    for q, a in history:
+        rows.append(
+            '<div class="msg user">'
+            f'<div class="bubble">{render_message_text(q)}</div>'
+            "</div>"
+        )
+        rows.append(
+            '<div class="msg bot">'
+            '<div class="label">GFC Assistant</div>'
+            f'<div class="bubble">{render_message_text(a)}</div>'
+            "</div>"
+        )
+    return "".join(rows)
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -128,12 +427,7 @@ def index():
         if q:
             answer = simple_chatbot(q, df)
             history.append((q, answer))
-    rows = []
-    for q, a in history:
-        rows.append(f'<div class="you"><b>You:</b> {html.escape(q)}</div>')
-        rows.append(f'<div class="bot"><b>Bot:</b> {html.escape(a)}</div>')
-    log_html = "".join(rows) or '<div class="bot">Ask a question to begin.</div>'
-    return render_template_string(PAGE, log_html=log_html)
+    return render_template_string(PAGE, log_html=build_thread_html(), suggestions=SUGGESTIONS)
 
 
 @app.route("/api/chat", methods=["POST"])
