@@ -3,7 +3,7 @@ import re
 import html
 
 import pandas as pd
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, session
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -97,7 +97,7 @@ def simple_chatbot(user_query, df):
 # Flask app
 # ---------------------------------------------------------------------------
 app = Flask(__name__)
-
+app.secret_key = os.environ.get("SECRET_KEY", "dev-only-change-me-in-production")
 NUMBER_PATTERN = re.compile(r"(\$[\d,]+(?:\.\d+)?(?: million)?|\(?[+-]?\d+\.\d+%\)?)")
 
 
@@ -392,11 +392,12 @@ PAGE = """
 </html>
 """
 
-# In-memory history so the page can show prior turns (per server process, not per visitor).
-history = []
+def get_history():
+    """Return this visitor's chat history from their session cookie."""
+    return session.get("history", [])
 
 
-def build_thread_html():
+def build_thread_html(history):
     if not history:
         return (
             '<div class="msg bot">'
@@ -422,12 +423,14 @@ def build_thread_html():
 
 @app.route("/", methods=["GET", "POST"])
 def index():
+    history = get_history()
     if request.method == "POST":
         q = request.form.get("q", "").strip()
         if q:
             answer = simple_chatbot(q, df)
             history.append((q, answer))
-    return render_template_string(PAGE, log_html=build_thread_html(), suggestions=SUGGESTIONS)
+            session["history"] = history  # save back to this visitor's cookie
+    return render_template_string(PAGE, log_html=build_thread_html(history), suggestions=SUGGESTIONS)
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -439,7 +442,7 @@ def api_chat():
 
 @app.route("/reset", methods=["POST"])
 def reset():
-    history.clear()
+    session.pop("history", None)
     return ("", 204)
 
 
